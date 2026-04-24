@@ -1,0 +1,23 @@
+{
+  "name": "e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:auth": "npx playwright test tests/auth.spec.ts",
+    "test:clients": "npx playwright test tests/clients.spec.ts",
+    "test:field": "npx playwright test tests/field-companion.spec.ts",
+    "test:freeform": "npx playwright test tests/freeform.spec.ts",
+    "test:scores": "npx playwright test tests/scoring-and-reports.spec.ts",
+    "test:knowledge": "npx playwright test tests/knowledge.spec.ts",
+    "test:products": "npx playwright test tests/products-partners.spec.ts",
+    "test:dashboard": "npx playwright test tests/dashboard.spec.ts",
+    "test:quick": "npx playwright test tests/auth.spec.ts tests/dashboard.spec.ts tests/clients.spec.ts",
+    "report": "npx playwright show-report"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
