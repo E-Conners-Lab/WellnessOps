@@ -47,3 +47,8 @@ coverage/
 # Test databases
 test.db
 verify_enc.db
+
+# Test artifacts (never commit)
+playwright-report/
+test-results/
+.last-run.json
