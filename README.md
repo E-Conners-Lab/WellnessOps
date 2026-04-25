@@ -2,7 +2,7 @@
 
 > A multi-modal RAG platform for in-home wellness audits — hybrid retrieval, two capture modes, AI-scored reports, and PDF deliverables.
 
-**The pitch in one paragraph.** WellnessOps is a mobile-first audit platform for wellness practitioners conducting in-home assessments. It supports two capture modes (structured room-by-room walkthrough and free-form observation), retrieves expert knowledge from a hybrid vector + BM25 pipeline across seven domains (environment, research, products, patterns, philosophies, aesthetics, partners), and uses Claude Opus to generate scored reports with prioritized recommendations, product suggestions, and partner referrals. Reports are editable, practitioner-overridable, and exported as branded PDFs.
+**The pitch in one paragraph.** WellnessOps is a mobile-first audit platform for wellness practitioners conducting in-home assessments. It supports two capture modes (structured room-by-room walkthrough and free-form observation), retrieves expert knowledge from a hybrid vector + BM25 pipeline across seven domains (environment, research, products, patterns, philosophies, aesthetics, partners), and reasons through a **swappable LLM backend** — local Ollama (default, for privacy) or the Claude API — to generate scored reports with prioritized recommendations, product suggestions, and partner referrals. Reports are editable, practitioner-overridable, and exported as branded PDFs.
 
 This is a domain-agnostic RAG/agent system — the same retrieval, scoring, and report-generation patterns apply to any field with structured expert knowledge and client-facing deliverables.
 
@@ -15,8 +15,9 @@ Most "AI wellness apps" are either generic chatbots or one-size-fits-all assessm
 1. A **mobile-first capture surface** they can use one-handed in a client's living room
 2. **Two capture modes** — guided when they want structure, free-form when they want to dictate observations
 3. **Knowledge-grounded reasoning** that draws from *their* curated body of expertise, not Wikipedia
-4. **Scored, branded reports** that look like the practitioner wrote them
-5. **Final-say authority** on every score the AI generates
+4. **Privacy by default** — client home photos and health observations stay on the practitioner's laptop. Local LLM (Ollama) is the default backend; cloud API is opt-in.
+5. **Scored, branded reports** that look like the practitioner wrote them
+6. **Final-say authority** on every score the AI generates
 
 WellnessOps is the system version of that workflow.
 
@@ -27,11 +28,14 @@ WellnessOps is the system version of that workflow.
 | Component | Implementation | Why it matters |
 |---|---|---|
 | **Retrieval** | ChromaDB (vector, bge-large-en-v1.5) + BM25 + Reciprocal Rank Fusion | Vector-only retrieval misses exact-name queries (product names, partner specialties). Hybrid lifts precision. |
-| **Two capture modes** | Structured "Field Companion" prompts (room-by-room) + free-form text/voice with Claude Sonnet auto-categorization | Practitioners use both — structured for thoroughness, free-form for flow. Same backend. |
-| **Diagnosis engine** | Claude Opus over retrieved context, scores 10 categories on a 100-point scale, generates per-category recommendations | Scoring is grounded in the practitioner's knowledge base, not the model's general training. |
+| **Two capture modes** | Structured "Field Companion" prompts (room-by-room) + free-form text with auto-categorization through the fast-tier LLM | Practitioners use both — structured for thoroughness, free-form for flow. Same backend. |
+| **Swappable LLM backend** | One env var (`LLM_BACKEND`) routes between local Ollama (default) and the Claude API. Two-tier model routing per call: `fast` (categorization) vs `reasoning` (diagnosis/reports) | Local-first means client home photos and observations never leave the practitioner's laptop. Claude API is opt-in for cases that need stronger reasoning. The abstraction means the same diagnosis service runs on either backend without code changes. |
+| **Multimodal vision** | Photo uploads analyzed via Ollama's vision models (`gemma3:12b` / `llama3.2-vision`) | Practitioners shoot photos one-handed in client homes; the system extracts environmental cues from images locally. |
+| **Robust JSON parsing** | `chat_completion_json` helper with multi-strategy fallback: cleaned-text parse, code-block extraction, first-brace search, **truncated-JSON repair** when output hits `max_tokens` mid-response | LLMs frequently truncate. Most apps crash; this one stitches the JSON closed and parses anyway. |
+| **Diagnosis engine** | Reasoning-tier LLM scores 10 categories on a 100-point scale, generates per-category justifications grounded in retrieved knowledge | Scoring derives from the practitioner's curated knowledge base, not the model's general training. |
 | **Practitioner override** | Every AI-generated score is editable. Original `ai_generated_score` is preserved alongside the override for calibration tracking. | Builds a labeled dataset of practitioner expertise over time — usable for future fine-tuning or prompt improvement. |
 | **Report generation** | Templated HTML rendered through WeasyPrint to branded PDF | Practitioner can edit any section before export. |
-| **Security** | JWT + Argon2id, EXIF stripping on photo uploads, file-type validation by magic bytes, structlog with PII redaction, 33-rule Secure Build Standard enforced | Audit data is sensitive (home photos, health observations). Treated accordingly. |
+| **Security** | JWT + Argon2id, EXIF stripping on photo uploads, file-type validation by magic bytes, structlog with PII redaction, 33-rule Secure Build Standard enforced | Audit data is sensitive (home photos, health observations). Local-first LLM is a security feature, not just a cost choice. |
 
 ---
 
@@ -59,7 +63,7 @@ WellnessOps is the system version of that workflow.
 │  └──────────────────────────────────┬─────────────────────────────┘ │
 │                                     │                                │
 │  ┌──────────────────────────────────▼─────────────────────────────┐ │
-│  │  Diagnosis Engine (Claude Opus)                                │ │
+│  │  Diagnosis Engine (reasoning-tier LLM via router)              │ │
 │  │  • Per-category scoring (10 categories, 100-point scale)       │ │
 │  │  • Why-this-matters justification (knowledge-grounded)         │ │
 │  │  • How-to-close-gap recommendations                            │ │
@@ -90,8 +94,9 @@ WellnessOps is the system version of that workflow.
 | Vector store | ChromaDB | Embedded, low ops |
 | Keyword search | rank-bm25 | Hybrid retrieval alongside vectors |
 | Embeddings | BAAI/bge-large-en-v1.5 (1024-dim) | Strong open-source model |
-| Reasoning LLM | Claude Opus (Anthropic API) | Scoring, report generation |
-| Classification LLM | Claude Sonnet | Free-form observation auto-categorization |
+| LLM backend (default) | **Ollama (local)** — `llama3.1:8b` for fast tier, `llama3.1:8b` for reasoning, `gemma3:12b` / `llama3.2-vision` for multimodal | Privacy-first for health data; works offline; zero API cost |
+| LLM backend (optional) | **Claude API** — Sonnet for fast tier, Opus for reasoning | Opt-in for stronger reasoning when warranted |
+| LLM router | `services/llm.py` — backend-agnostic abstraction with two-tier model routing and JSON-mode with truncation repair | Same code path works on either backend |
 | Auth | JWT (python-jose) + Argon2id (passlib) | Compliance with secure auth standards |
 | Validation | Pydantic v2 | Type-safe schemas |
 | Logging | structlog with PII redaction | Structured JSON, redacts sensitive fields |
@@ -162,8 +167,9 @@ Documents in `knowledge-base/` are organized into 7 domain folders. Each documen
 At query time:
 1. Hybrid search runs vector + BM25 in parallel
 2. Reciprocal Rank Fusion merges results
-3. Top-K chunks (default 8) feed Claude Opus alongside the audit observation set
-4. Opus generates per-category scores, justifications, and recommendations
+3. Top-K chunks (default 8) feed the **reasoning-tier LLM** (local `llama3.1` via Ollama or Claude Opus, depending on `LLM_BACKEND`) alongside the audit observation set
+4. The model generates per-category scores, justifications, and recommendations
+5. Output is parsed via `chat_completion_json` — a JSON-mode helper that survives mid-response truncation by stitching open braces/strings closed before parsing
 
 ---
 
@@ -187,7 +193,7 @@ At query time:
 |---|---|---|
 | Foundation + Knowledge Ingestion | ✅ | Auth, multi-domain ingestion, hybrid retrieval |
 | Field Companion (Structured Intake) | ✅ | Room-by-room guided walkthrough |
-| Free-Form Capture | ✅ | Sonnet-powered auto-categorization |
+| Free-Form Capture | ✅ | Auto-categorization via fast-tier LLM (Sonnet or local model) |
 | Diagnosis Engine + Report Generation | ✅ | Opus scoring, WeasyPrint PDF export |
 | Pattern Recognition | 🚧 | Cross-engagement pattern detection |
 | Partner Ecosystem + Polish | 🚧 | Partner referral matching |
